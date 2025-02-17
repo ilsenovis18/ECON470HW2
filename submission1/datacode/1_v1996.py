@@ -93,6 +93,7 @@ charge_payment_vars = ['tot_charges', 'tot_discounts', 'tot_operating_exp', 'ip_
 
 final_data = pd.read_csv(output_path)
 
+# Check data ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # NaN counts for discharges
 print("\nNaN Counts for Discharge Variables:")
 for var in discharge_vars:
@@ -102,3 +103,4 @@ for var in discharge_vars:
 print("\nNaN Counts for Charge and Payment Variables:")
 for var in charge_payment_vars:
     print(f"{var}: {final_data[var].isna().sum()} NaN values")
+

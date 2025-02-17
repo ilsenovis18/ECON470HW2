@@ -8,11 +8,22 @@ v2010_path = '/Users/ilsenovis/Documents/GitHub/ECON470HW2/data/output/final_hcr
 final_hcris_v1996 = pd.read_csv(v1996_path)
 final_hcris_v2010 = pd.read_csv(v2010_path)
 
-# Standardize column names
-if 'PRVDR_NUM' in final_hcris_v1996.columns:
-    final_hcris_v1996 = final_hcris_v1996.rename(columns={'PRVDR_NUM': 'provider_number'})
-if 'PRVDR_NUM' in final_hcris_v2010.columns:
-    final_hcris_v2010 = final_hcris_v2010.rename(columns={'PRVDR_NUM': 'provider_number'})
+# Check column differences before merging
+v1996_cols = set(final_hcris_v1996.columns)
+v2010_cols = set(final_hcris_v2010.columns)
+
+# Rename incorrect columns
+rename_columns = {
+    'PRVDR_NUM': 'provider_number',
+    'NPI': 'npi',
+    'FY_BGN_DT': 'fy_start',
+    'FY_END_DT': 'fy_end',
+    'PROC_DT': 'date_processed',
+    'FI_CREAT_DT': 'date_created'
+}
+
+final_hcris_v1996.rename(columns=rename_columns, inplace=True)
+final_hcris_v2010.rename(columns=rename_columns, inplace=True)
 
 # Add source year
 final_hcris_v1996['source_year'] = '1996'
@@ -22,22 +33,33 @@ final_hcris_v2010['source_year'] = '2010'
 final_hcris_v1996['hvbp_payment'] = np.nan
 final_hcris_v1996['hrrp_payment'] = np.nan
 
+final_hcris_v1996['fyear'] = pd.to_datetime(final_hcris_v1996['fy_end'], errors='coerce').dt.year
+final_hcris_v2010['fyear'] = pd.to_datetime(final_hcris_v2010['fy_end'], errors='coerce').dt.year
+
+print("Years in 1996:", sorted(final_hcris_v1996['fyear'].dropna().unique()))
+print("Years in 2010:", sorted(final_hcris_v2010['fyear'].dropna().unique()))
+
+print(final_hcris_v2010[['fy_end', 'fyear']].dropna().head())
+
 # Combine datasets
 final_hcris = pd.concat([final_hcris_v1996, final_hcris_v2010], ignore_index=True)
 
 # Convert date columns to datetime format
-date_columns = ['FY_END_DT', 'FY_BGN_DT', 'PROC_DT', 'FI_CREAT_DT']
+date_columns = ['fy_end', 'fy_start', 'date_processed', 'date_created']
 for col in date_columns:
     if col in final_hcris.columns:
         final_hcris[col] = pd.to_datetime(final_hcris[col], errors='coerce')
+
+print("Years in merged dataset:", sorted(final_hcris['fyear'].dropna().unique()))
+print(final_hcris[final_hcris['fyear'] == 2012])
 
 # Convert to absolute values
 final_hcris['tot_discounts'] = final_hcris['tot_discounts'].abs()
 final_hcris['hrrp_payment'] = final_hcris['hrrp_payment'].abs()
 
 # Extract fiscal year and sort
-if 'FY_END_DT' in final_hcris.columns:
-    final_hcris['fyear'] = final_hcris['FY_END_DT'].dt.year
+if 'fy_end' in final_hcris.columns:
+    final_hcris['fyear'] = final_hcris['fy_end'].dt.year
 final_hcris = final_hcris.sort_values(by=['provider_number', 'fyear']).drop(columns=['year'], errors='ignore')
 
 # Save combined dataset
@@ -45,12 +67,13 @@ output_path = '/Users/ilsenovis/Documents/GitHub/ECON470HW2/data/output/HCRIS_Da
 final_hcris.to_csv(output_path, index=False)
 
 # Confirmation message
-print(f"✅ Final merged dataset saved successfully to {output_path}!")
+print(f"Final merged dataset saved successfully to {output_path}!")
 
+# Check data ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Check for NaN values in all columns
 nan_counts = final_hcris.isna().sum()
 print("\nNaN Counts for Each Column:")
-print(nan_counts[nan_counts > 0])  # Only show columns with NaN values
+print(nan_counts[nan_counts > 0])
 
 # List of key variables to check
 key_vars = [
@@ -91,4 +114,4 @@ print("\nSource Year Counts:")
 print(final_hcris['source_year'].value_counts())
 
 # Confirmation
-print("\n✅ Data checks completed!")
+print("\nData checks completed!")

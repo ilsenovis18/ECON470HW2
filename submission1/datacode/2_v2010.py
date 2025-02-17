@@ -36,7 +36,7 @@ extract_dir = '/Users/ilsenovis/Documents/GitHub/ECON470HW2/data/input/HCRIS-v20
 final_hcris_v2010 = None
 
 # Loop through each year (2010 to 2019)
-for year in range(2010, 2020):
+for year in range(2010, 2018):
     print(f"Processing year: {year}")
     
     report_csv_path = os.path.join(extract_dir, f'hosp10_{year}_RPT.CSV')
@@ -92,6 +92,7 @@ final_hcris_v2010.to_csv(output_path, index=False)
 
 print(f"Final dataset saved to {output_path}")
 
+# Check data ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Check NaN counts
 key_vars = ['tot_discharges', 'mcare_discharges', 'mcaid_discharges',
             'tot_charges', 'tot_discounts', 'tot_operating_exp',
@@ -103,3 +104,48 @@ final_data = pd.read_csv(output_path)
 print("\nNaN Counts for Key Variables:")
 for var in key_vars:
     print(f"{var}: {final_data[var].isna().sum()} NaN values")
+
+
+import pandas as pd
+
+# Load the final_hcris_v2010 dataset
+v2010_path = '/Users/ilsenovis/Documents/GitHub/ECON470HW2/data/output/final_hcris_v2010.csv'
+hcris_v2010 = pd.read_csv(v2010_path)
+
+# Display the first few rows to confirm it loaded correctly
+print(hcris_v2010.head())
+
+# Check if 'hvbp_payment' and 'hrrp_payment' columns exist
+print(hcris_v2010.columns)
+
+# Count missing values (NaN) in HVBP and HRRP payment columns
+missing_hvbp = hcris_v2010['hvbp_payment'].isnull().sum()
+missing_hrrp = hcris_v2010['hrrp_payment'].isnull().sum()
+
+print(f"Missing HVBP Payments: {missing_hvbp}")
+print(f"Missing HRRP Payments: {missing_hrrp}")
+
+# Display rows where payments are not missing (to verify actual values)
+hvbp_non_missing = hcris_v2010[hcris_v2010['hvbp_payment'].notnull()]
+hrrp_non_missing = hcris_v2010[hcris_v2010['hrrp_payment'].notnull()]
+
+print("\nNon-missing HVBP Payments:")
+print(hvbp_non_missing[['PRVDR_NUM', 'hvbp_payment']].head())
+
+print("\nNon-missing HRRP Payments:")
+print(hrrp_non_missing[['PRVDR_NUM', 'hrrp_payment']].head())
+
+# Fill missing HVBP and HRRP payments with 0
+hcris_v2010['hvbp_payment'] = hcris_v2010['hvbp_payment'].fillna(0)
+hcris_v2010['hrrp_payment'] = hcris_v2010['hrrp_payment'].fillna(0)
+
+# Save the updated dataset
+hcris_v2010.to_csv('/Users/ilsenovis/Documents/GitHub/ECON470HW2/data/output/final_hcris_v2010_cleaned.csv', index=False)
+
+# Confirmation
+print("Missing payment values filled with 0. Cleaned file saved successfully!")
+
+# Confirm there are no more missing values
+print("Missing HVBP Payments after cleaning:", hcris_v2010['hvbp_payment'].isnull().sum())
+print("Missing HRRP Payments after cleaning:", hcris_v2010['hrrp_payment'].isnull().sum())
+
