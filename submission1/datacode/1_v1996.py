@@ -32,8 +32,8 @@ hcris96_vars = pd.DataFrame([
 # Pull relevant data: v1996 of HCRIS forms run through 2011 due to lags in processing and hospital FYs
 final_hcris_v1996 = None
 
-# Loop through the years (1998 to 2009)
-for year in range(1998, 2010):
+# Loop through the years (2008 to 2009)
+for year in range(2008, 2010):
     print(f"Processing year: {year}")
     report_csv_path = f"/Users/ilsenovis/Documents/GitHub/ECON470HW2/data/input/HCRIS-v1996/hosp_{year}_RPT.CSV"
     alpha_csv_path = f"/Users/ilsenovis/Documents/GitHub/ECON470HW2/data/input/HCRIS-v1996/hosp_{year}_ALPHA.CSV"
