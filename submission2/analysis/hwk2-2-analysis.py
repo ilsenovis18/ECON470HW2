@@ -8,20 +8,25 @@
 import pandas as pd
 import numpy as np
 import os
+from sklearn.linear_model import LogisticRegression
+from sklearn.utils import resample
+from scipy.spatial.distance import mahalanobis
+from sklearn.neighbors import NearestNeighbors
+from scipy.spatial.distance import cdist
 import matplotlib.pyplot as plt
+import statsmodels.api as sm
 import matplotlib.ticker as ticker
 import matplotlib
 matplotlib.use('TkAgg')
 import seaborn as sns
 from statsmodels.formula.api import ols
 from sklearn.neighbors import NearestNeighbors
-from sklearn.linear_model import LogisticRegression
 from IPython.display import Markdown, display
 import warnings
 warnings.simplefilter(action='ignore', category=pd.errors.DtypeWarning)
 
 # Load and inspect cleaned HCRIS dataset
-hcris_data = '/Users/ilsenovis/Documents/GitHub/ECON470HW2/data/output/HCRIS_Data.csv'
+hcris_data = 'data/output/HCRIS_Data.csv'
 data = pd.read_csv(hcris_data)
 
 # Convert the 'fy_start' and 'fy_end' columns to datetime format
@@ -39,240 +44,398 @@ num_providers = data['provider_number'].nunique()
 print(f"Number of distinct providers: {num_providers}")
 
 # Count duplicate reports per provider per year
-duplicate_count = data.groupby(['provider_number', 'fy_year']).size().reset_index(name='total_reports')
+dup_count = data.groupby(['provider_number', 'fy_year']).size().reset_index(name='total_reports')
 
 # Count duplicate reports per year
-duplicate_count = duplicate_count[duplicate_count ['total_reports'] > 1]
+dup_count = dup_count[dup_count['total_reports'] > 1]
 
 # Summarize duplicates per year
-dup_summary = duplicate_count. groupby(['fy_year'])['total_reports'].sum().reset_index()
+dup_summary = dup_count.groupby(['fy_year'])['total_reports'].sum().reset_index()
+print(dup_summary)
 
 # Line plot for hospitals with multiple reports
-plt.figure(figsize=(10, 6))
-plt.plot(multi_report_counts.index, multi_report_counts.values, marker='o')
-plt.title('Number of Hospitals with Multiple Reports Over Time')
+plt.figure(figsize=(8, 5))
+plt.plot(dup_summary['fy_year'].values, dup_summary['total_reports'].values, marker='o', linestyle='-', color='blue')
+
+# Set y-axis to log scale to handle large jumps
+plt.yscale('log')
+# Ensure x-axis includes all years
+plt.xticks(range(2007, 2016))
+
+plt.title('Figure 1: Number of Hospitals with Multiple Reports', fontsize=14)
 plt.xlabel('Fiscal Year')
-plt.ylabel('Number of Hospitals')
-plt.grid()
-plt.savefig('graph_output/multi_report_hospitals.png')
+plt.ylabel('Number of Hospitals (Log Scale)')
+plt.ylim(1, dup_summary['total_reports'].max() * 1.1)
+plt.grid(axis='y', color='gray', linestyle='--', alpha=0.5)
+
+# Save line plot
+output_dir = 'submission2/analysis'
+plt.savefig(os.path.join(output_dir, 'multi_report_hospitals.png'))
 print("Plot saved successfully!")
 
 # --------------------------------------------------------------------------------------------------
 # Q2: After removing/combining multiple reports, how many unique hospital IDs exist?
 # --------------------------------------------------------------------------------------------------
+dup_summary = dup_count.groupby('fy_year')['total_reports'].sum().reset_index()
+hosp_count = data.groupby('fy_year').size().reset_index(name='hosp_count')
+print(hosp_count)
 
-unique_hospitals = hcris_data['provider_number'].nunique()
-print(f"Total Unique Hospitals (Medicare Provider Number): {unique_hospitals}")
+# Count of unique hospitals per year
+plt.figure(figsize=(8, 5))
+plt.plot(hosp_count['fy_year'].values, hosp_count['hosp_count'].values,
+         marker='o', linestyle='-', color='blue')
+plt.title('Figure 2: Unqiue Hospital IDs', fontsize=14)
+plt.xlabel('Fiscal Year')
+plt.ylabel('Number of Hospital IDs')
+plt.ylim(0, hosp_count['hosp_count'].max() * 1.1)
+plt.grid(axis='y', color='gray', linestyle='--', alpha=0.5)
+
+# Save line plot
+output_dir = 'submission2/analysis'
+plt.savefig(os.path.join(output_dir, 'unique_hospitals.png'))
+print("Plot saved successfully!")
 
 # --------------------------------------------------------------------------------------------------
 # Q3: Distribution of total charges per year (Violin Plot)
 # --------------------------------------------------------------------------------------------------
-hcris_data_clean = hcris_data[hcris_data['tot_charges'] > 0].copy()
-hcris_data_clean['log_tot_charges'] = np.log1p(hcris_data_clean['tot_charges'])
+charge_data = data.copy()
 
-plt.figure(figsize=(12, 6))
-sns.violinplot(x='fyear', y='log_tot_charges', data=hcris_data_clean, palette='viridis')
-plt.title('Distribution of Log-Transformed Total Charges by Year')
+# Drop rows where 'tot_charges' is NaN 
+charge_data = charge_data.dropna(subset=['tot_charges'])
+
+# Comput 1st and 99th percentiles
+charge_data['tot_charges_low'] = charge_data.groupby('year')['tot_charges'].transform(lambda x: np.nanpercentile(x, 1))
+charge_data['tot_charges_high'] = charge_data.groupby('year')['tot_charges'].transform(lambda x: np.nanpercentile(x, 99))
+
+# Filter out extreme vlaues and missing data
+charge_data = charge_data[
+    (charge_data['tot_charges'] > charge_data['tot_charges_low']) &
+    (charge_data['tot_charges'] < charge_data['tot_charges_high']) &
+     charge_data['tot_charges'].notna() &
+     (charge_data['year'] > 2008)
+]
+
+# Compute log of total charges
+charge_data['log_charge'] = np.log(charge_data['tot_charges'])
+
+# Prepare data for violin plot
+years = sorted(charge_data['year'].unique())
+charge_violin_data = [charge_data[charge_data['year'] == y]['log_charge'].dropna().values for y in years]
+
+# Plot distribution of total charges
+fig, ax = plt.subplots(figsize=(8, 5))
+parts = ax.violinplot(charge_violin_data, positions=years, showmedians=False)
+
+# Customize Violin Plot
+for pc in parts['bodies']:
+    pc.set_facecolor('gold')
+    pc.set_alpha(0.3)
+
+# Add median line
+median = charge_data.groupby('year')['log_charge'].median()
+plt.plot(years, median.values, marker='o', linestyle='-', color='blue', linewidth=2)
+
+# Format plot
+plt.title('Figure 3: Distribution of Total Charges', fontsize=14)
 plt.xlabel('Fiscal Year')
-plt.ylabel('Log of Total Charges')
-plt.xticks(rotation=45)
-plt.savefig('graph_output/violin_plot_total_charges.png')
-print("Violin plot saved successfully!")
+plt.ylabel('Log $')
+plt.grid(axis='y', color='gray', linestyle='--', alpha=0.5)
+
+# Save line plot
+output_dir = 'submission2/analysis'
+plt.savefig(os.path.join(output_dir, 'tot_charges.png'))
+print("Plot saved successfully!")
 
 # --------------------------------------------------------------------------------------------------
 # Q4: Distribution of estimated prices per year (Violin Plot)
 # --------------------------------------------------------------------------------------------------
+if not isinstance(data, pd.DataFrame):
+    data = pd.read_csv(hcris_data)
+
 # Price Calculation
-hcris_data['discount_factor'] = 1 - (hcris_data['tot_discounts'] / hcris_data['tot_charges'])
-hcris_data['price_num'] = (hcris_data['ip_charges'] + hcris_data['icu_charges'] + hcris_data['ancillary_charges']) * hcris_data['discount_factor'] - hcris_data['tot_mcare_payment']
-hcris_data['price_denom'] = hcris_data['tot_discharges'] - hcris_data['mcare_discharges']
-hcris_data['price'] = hcris_data['price_num'] / hcris_data['price_denom']
+data['discount_factor'] = 1 - data['tot_discounts'] / data['tot_charges']
+data['price_num'] = (
+    (data['ip_charges'] + data['icu_charges'] + data['ancillary_charges']) * 
+    data['discount_factor']
+) - data['tot_mcare_payment']
+data['price_denom'] = data['tot_discharges'] - data['mcare_discharges']
+data['price'] = data['price_num'] / data['price_denom']
 
-# Remove outliers and negative prices
-hcris_data = hcris_data[(hcris_data['price_denom'] > 100) & (hcris_data['price_num'] > 0) & (hcris_data['price'] < 1000000)]
+# Replace invalid denominators (zero or NaN) with NaN
+data['price_denom'] = np.where(data['price_denom'] > 0, data['price_denom'], np.nan)
 
-plt.figure(figsize=(12, 6))
-sns.violinplot(x='fyear', y='price', data=hcris_data, palette='viridis')
-plt.title('Distribution of Estimated Prices by Year')
+# Compute price only for valid values
+data['price'] = data['price_num'] / data['price_denom']
+
+# Filtering the data
+price_data = data[
+    (data['price_denom'] > 100) &
+    (~data['price_denom'].isna()) &
+    (data['price_num'] > 0) &
+    (~data['price_num'].isna()) &
+    (data['price'] < 100000) &
+    (data['beds'] > 30) &
+    (~data['beds'].isna())
+]
+
+# Prepare for Violin plot
+years = sorted(price_data['year'].unique())
+price_violin_data = [price_data[price_data['year'] == y]['price'].dropna().values for y in years]
+
+# Plot distribution of total charges
+fig, ax = plt.subplots(figsize=(8, 5))
+parts = ax.violinplot(price_violin_data, positions=years, showmedians=False)
+
+# Customize violin plot
+for pc in parts['bodies']:
+    pc.set_facecolor('gold')
+    pc.set_alpha(0.3)
+
+# Add median line
+median = price_data.groupby('year')['price'].median()
+plt.plot(years, median.values, marker='o', linestyle='-', color='blue', linewidth=2)
+
+# Format plot
+plt.title('Figure 4: Distribution of Total Charges', fontsize=14)
 plt.xlabel('Fiscal Year')
-plt.ylabel('Estimated Price')
-plt.xticks(rotation=45)
-plt.savefig('graph_output/violin_plot_estimated_prices.png')
-print("Violin plot saved successfully!")
+plt.ylabel('Log $')
+plt.grid(axis='y', color='gray', linestyle='--', alpha=0.5)
+
+# Save line plot
+output_dir = 'submission2/analysis'
+plt.savefig(os.path.join(output_dir, 'price_distribution.png'))
+print("Plot saved successfully!")
 
 # --------------------------------------------------------------------------------------------------
-# Q5: Estimate ATEs - Only use 2012 data
+# Q5: Calculate the average price among penalized versus non-penalized hospitals
 # --------------------------------------------------------------------------------------------------
-# Load dataset
-hcris_data = pd.read_csv('/Users/ilsenovis/Documents/GitHub/ECON470HW2/data/output/HCRIS_Data.csv')
+# Ensure 'penalty' is created as a float column using. loc
+price_data = data.copy()
+price_data.loc[:, 'penalty'] = ((price_data['hvbp_payment'].fillna(0) - price_data['hrrp_payment'].fillna(0)).abs().astype(float) < 9)
 
-# Ensure fyear is integer
-hcris_data['fyear'] = pd.to_numeric(hcris_data['fyear'], errors='coerce')
+print(price_data.columns)
 
-# Filter data for 2012
-hcris_2012 = hcris_data[(hcris_data['fyear'] == 2012) & (hcris_data['beds'] > 30)].copy()
+# Filter data for the year 2012
+pen_data_2012 = price_data[price_data['year'] == 2012].copy()
 
-# Recalculate price after filtering
-hcris_2012['discount_factor'] = 1 - (hcris_2012['tot_discounts'] / hcris_2012['tot_charges'])
-hcris_2012['price_num'] = (hcris_2012['ip_charges'] + hcris_2012['icu_charges'] + hcris_2012['ancillary_charges']) * hcris_2012['discount_factor'] - hcris_2012['tot_mcare_payment']
-hcris_2012['price_denom'] = hcris_2012['tot_discharges'] - hcris_2012['mcare_discharges']
-hcris_2012['price'] = hcris_2012['price_num'] / hcris_2012['price_denom']
+# Compute Quartiles
+beds_q1 = pen_data_2012['beds'].quantile(0.25)
+beds_q2 = pen_data_2012['beds'].quantile(0.50)
+beds_q3 = pen_data_2012['beds'].quantile(0.75)
+beds_q4 = pen_data_2012['beds'].max()
 
-# Ensure denominator is valid (avoid division by zero or negative values)
-hcris_2012 = hcris_2012[hcris_2012['price_denom'] > 0]
+# Assign bed quartiles
+pen_data_2012['bed_quart'] = np.select(
+    [
+        pen_data_2012['beds'] < beds_q1,
+        (pen_data_2012['beds'] >= beds_q1) & (pen_data_2012['beds'] < beds_q2),
+        (pen_data_2012['beds'] >= beds_q2) & (pen_data_2012['beds'] < beds_q3),
+        pen_data_2012['beds'] >= beds_q3
+    ],
+    [1, 2, 3, 4],
+    default=0
+)
 
-# Compute price only for valid rows
-hcris_2012['price'] = hcris_2012['price_num'] / hcris_2012['price_denom']
+# Filter out invalid quartile values
+pen_data_2012 = pen_data_2012[pen_data_2012['bed_quart'] > 0]
 
-# Drop remaining invalid rows
-hcris_2012 = hcris_2012.replace([np.inf, -np.inf], np.nan).dropna(subset=['price'])
-
-print("Final number of rows in 2012 dataset after cleaning:", len(hcris_2012))
-
-# Check if 'price' column now exists
-#print("Columns in hcris_2012 after recalculating price:", hcris_2012.columns)
-
-# Ensure penalty calculation works
-hcris_2012['hvbp_payment'] = hcris_2012['hvbp_payment'].fillna(0)
-hcris_2012['hrrp_payment'] = hcris_2012['hrrp_payment'].fillna(0).abs()
-
-# Define Penalty Variable (penalized = True if sum of payments is negative)
-hcris_2012['penalty'] = (hcris_2012['hvbp_payment'] - hcris_2012['hrrp_payment']) < 0
-
-print("\nChecking Penalty Distribution in 2012 Data:")
-print(hcris_2012['penalty'].value_counts())
-
-# If penalty is always False, check if HVBP and HRRP are zero
-print("\nSummary of HVBP and HRRP Payments Before Abs Transformation:")
-print(hcris_2012[['hvbp_payment', 'hrrp_payment']].describe())
-
-# Take absolute value of HRRP
-hcris_2012['hrrp_payment'] = hcris_2012['hrrp_payment'].abs()
-
-# Redefine penalty after correcting HRRP
-hcris_2012['penalty'] = (hcris_2012['hvbp_payment'] - hcris_2012['hrrp_payment']) < 0
-
-# Check penalty distribution again
-print("\nPenalty Distribution After Fixing HRRP:")
-print(hcris_2012['penalty'].value_counts())
-
-# Summary statistics for penalty
-print("\nChecking Penalty Distribution in 2012 Data:")
-print(hcris_2012['penalty'].value_counts())
-
-# Compute Mean Price by Penalty
-mean_price_penalized = round(hcris_2012[hcris_2012['penalty']]['price'].mean(), 2)
-mean_price_non_penalized = round(hcris_2012[~hcris_2012['penalty']]['price'].mean(), 2)
-
-print(f"Mean Price - Penalized Hospitals: {mean_price_penalized}")
-print(f"Mean Price - Non-Penalized Hospitals: {mean_price_non_penalized}")
+# Compute average price by penalty status
+avg_pen = pen_data_2012.groupby('penalty')['price'].mean()
+print(avg_pen)
 
 # --------------------------------------------------------------------------------------------------
-# Q6: Split hospitals into quartiles based on bed size
+# Q6: Split hospitals into quartiles based on bed size. Provide a table of the average price among treated/control groups for each quartile.
 # --------------------------------------------------------------------------------------------------
+# Compute the average price by treatment status (penalized vs. non-penalized) and quartile
+quartile_avg_price = pen_data_2012.groupby(['bed_quart', 'penalty'])['price'].mean().unstack()
 
-# Create bed size quartiles
-hcris_2012['bed_quartile'] = pd.qcut(hcris_2012['beds'], q=4, labels=[1, 2, 3, 4])
+# Rename columns for clarity
+quartile_avg_price.columns = ['Control (No Penalty)', 'Treated (Penalty)']
+quartile_avg_price.index.name = 'Bed Quartile'
+quartile_avg_price = quartile_avg_price.round(2)
 
-# Check distribution
-print("\nBed Quartile Distribution:")
-print(hcris_2012['bed_quartile'].value_counts())
-
-# Compute mean prices by penalty and quartile
-price_by_quartile = hcris_2012.groupby(['bed_quartile', 'penalty'])['price'].mean().unstack()
-print("\nAverage Prices by Quartile & Treatment Group:")
-print(price_by_quartile)
+# Display the final table
+print("\nTable: Average Price by Treatment Status for Each Bed Size Quartile\n")
+print(quartile_avg_price)
 
 # --------------------------------------------------------------------------------------------------
 # Q7: Use Different Estimators
 # --------------------------------------------------------------------------------------------------
-# Nearest Neighbor Matching (Inverse Variance and Mahalanobis Distance)
-# Selecting matching covariates
-covariates = ['beds', 'mcaid_discharges', 'ip_charges', 'mcare_discharges', 'tot_mcare_payment']
+# Q7.A: Nearest Neighbor Matching (Inverse Variance and Mahalanobis Distance)
+# Prepare data
+match_data = pen_data_2012.copy()
+match_data = match_data.dropna()
 
-# Check for NaN values in covariates before matching
-print("Missing values in matching covariates before imputation:\n", hcris_2012[covariates].isna().sum())
+# Separate treated and control groups
+treated = match_data[match_data['penalty'] == True]
+control = match_data[match_data['penalty'] == False]
 
-# Fill missing values with column median (better than mean for outliers)
-hcris_2012[covariates] = hcris_2012[covariates].apply(lambda x: x.fillna(x.median()))
+# Use bed quartiles as the matching variables
+X_treated = treated[['bed_quart']].values
+X_control = control[['bed_quart']].values
 
-# Verify no missing values remain
-print("Missing values in matching covariates after imputation:\n", hcris_2012[covariates].isna().sum())
+# Use inverse variance weighting for distance
+bed_var = match_data.groupby('bed_quart')['price'].var().fillna(1)
+inv_var_weights = 1 / bed_var.loc[treated['bed_quart']].values
 
-# Selecting matching covariates
-covariates = ['beds', 'mcaid_discharges', 'ip_charges', 'mcare_discharges', 'tot_mcare_payment']
-X = hcris_2012[covariates]
-X = hcris_2012[covariates]
-T = hcris_2012['penalty'].astype(int)
-Y = hcris_2012['price']
+# Perform NN Matching (1-to-1)
+nn = NearestNeighbors(n_neighbors=1, metric='euclidean')
+nn.fit(X_control)
+_, indices = nn.kneighbors(X_treated)
 
-# Nearest Neighbor Matching using Mahalanobis Distance
-nn = NearestNeighbors(n_neighbors=1, metric='mahalanobis').fit(X)
-_, indices = nn.kneighbors(X)
+# Get matched control prices
+matched_control_prices = control.iloc[indices.flatten()]['price'].values
+treated_prices = treated['price'].values
 
-matched_prices_mahalanobis = Y.iloc[indices.flatten()].mean()
-print(f"\nNearest Neighbor Matching (Mahalanobis Distance) ATE: {matched_prices_mahalanobis - Y.mean():.2f}")
+# Compute ATE
+ATE_nn = np.mean(treated_prices - matched_control_prices)
+print(f"Nearest Neighbor Matching ATE: {ATE_nn:.2f}")
 
-# Nearest Neighbor Matching using Inverse Variance Distance
-weights = 1 / (X.var().values)  # Compute inverse variance weights
-nn_var = NearestNeighbors(n_neighbors=1, metric='euclidean', metric_params={'w': weights}).fit(X)
-_, indices_var = nn_var.kneighbors(X)
+# Q7.B: Nearest Neighbor Matching using Mahalanobis Distance
+# Prepare data
+match_mah_data = pen_data_2012.copy()
+match_mah_data = match_mah_data.dropna()
 
-matched_prices_variance = Y.iloc[indices_var.flatten()].mean()
-print(f"Nearest Neighbor Matching (Inverse Variance) ATE: {matched_prices_variance - Y.mean():.2f}")
+# Separate treated and control groups
+treated_mah = match_mah_data[match_mah_data['penalty'] == True]
+control_mah = match_mah_data[match_mah_data['penalty'] == False]
 
-# Propesntiy Score Matching and Weighting
-# Propensity Score Model
-ps_model = LogisticRegression(solver='lbfgs', max_iter=1000)
-ps_model.fit(X, T)
-ps = ps_model.predict_proba(X)[:, 1]  # Get probabilities of penalty
+# Use bed quartiles as matching variables
+X_mah_treated = treated[['bed_quart']].values
+X_mah_control = control[['bed_quart']].values
 
-# Nearest Neighbor Matching on Propensity Score
-nn_ps = NearestNeighbors(n_neighbors=1, metric='euclidean').fit(ps.reshape(-1, 1))
-_, indices_ps = nn_ps.kneighbors(ps.reshape(-1, 1))
+# Compute inverse covariance matrix for Mahalonobis distance
+cov_matrix = np.cov(match_mah_data[['bed_quart']].values.T, rowvar=False)
+cov_matrix = np.atleast_2d(cov_matrix)
+inv_cov_matrix = np.linalg.inv(cov_matrix)
 
-matched_prices_ps = Y.iloc[indices_ps.flatten()].mean()
-print(f"Nearest Neighbor Matching (Propensity Score) ATE: {matched_prices_ps - Y.mean():.2f}")
+# Compute Mahalanobis distance between each treated and control unit
+dist_matrix = np.array([
+    [mahalanobis(t, c, inv_cov_matrix) for c in X_mah_control]
+    for t in X_mah_treated
+])
 
-# Inverse Propensity Score Weighting
-weights_treated = 1 / ps
-weights_control = 1 / (1 - ps)
+# Perform NN Matching (1-to-1)
+nn_indices = dist_matrix.argmin(axis=1)
 
-ate_ipw = ((T * Y * weights_treated).sum() - ((1 - T) * Y * weights_control).sum()) / len(Y)
-print(f"Inverse Propensity Score Weighting ATE: {ate_ipw:.2f}")
+# Get matched control prices
+matched_mah_control_prices = control_mah.iloc[nn_indices]['price'].values
+treated_mah_prices = treated_mah['price'].values
 
-#Linear Regression for ATE Estimation
-# Regression-Based ATE Estimation
-regression_model = ols("price ~ penalty + C(bed_quartile)", data=hcris_2012).fit()
-print("\nRegression-Based ATE Estimation:")
-print(regression_model.summary())
+# Compute ATE
+ATE_nn_mah = np.mean(treated_mah_prices - matched_mah_control_prices)
+print(f"Nearest Neighbor Matching (Mahalanobis) ATE: {ATE_nn_mah:.2f}")
 
-# Final Summary Table
-# Extract ATE from regression coefficient
-ate_regression = regression_model.params['penalty']
-print(f"\nRegression-Based ATE: {ate_regression:.2f}")
+# Q7.C: Propesntiy Score Matching and Weighting
+# Prepare data
+ps_model_data = pen_data_2012.copy()
+ps_model_data = ps_model_data.dropna()
 
-ate_results = pd.DataFrame({
-    'Method': [
-        'Exact Matching',
-        'Nearest Neighbor (Inverse Variance)',
-        'Nearest Neighbor (Mahalanobis)',
-        'Nearest Neighbor (Propensity Score)',
-        'Inverse Propensity Weighting',
-        'Regression-Based ATE'
-    ],
-    'ATE': [
-        None,  # Exact matching not yet implemented
-        matched_prices_variance - Y.mean(),
-        matched_prices_mahalanobis - Y.mean(),
-        matched_prices_ps - Y.mean(),
-        ate_ipw,
-        ate_regression
-    ]
-})
+# Fit log regression model to estimate PS 
+logit_model = LogisticRegression()
+logit_model.fit(ps_model_data[['beds', 'mcaid_discharges', 'ip_charges', 'mcare_discharges', 'tot_mcare_payment']], ps_model_data['penalty'])
 
-print("\nFinal ATE Results:")
-print(ate_results)
+# Compute PS scores (predicted possibilities)
+ps_model_data['ps'] = logit_model.predict_proba(ps_model_data[['beds', 'mcaid_discharges', 'ip_charges', 'mcare_discharges', 'tot_mcare_payment']])[:, 1]
+
+# Compute inverse probability weights (IPW)
+ps_model_data['ipw'] = np.where(
+    ps_model_data['penalty'] == 1,
+    1 / ps_model_data['ps'], #For treated
+    1 / (1- ps_model_data['ps']) #For control
+)
+
+# Compute weighte means for treated and control groups
+mean_treated =  np.average(ps_model_data.loc[ps_model_data['penalty'] == 1, 'price'],
+                           weights=ps_model_data.loc[ps_model_data['penalty'] ==1, 'ipw'])
+
+mean_control = np.average(ps_model_data.loc[ps_model_data['penalty'] == 0, 'price'],
+                          weights=ps_model_data.loc[ps_model_data['penalty'] == 0, 'ipw'])
+
+# Compute ATE
+ATE_ipw = mean_treated - mean_control
+
+# Print results
+print(f"Mean Price (Treated): {mean_treated:.2f}")
+print(f"Mean Price (Control): {mean_control:.2f}")
+print(f"ATE (IPW): {ATE_ipw:.2f}")
+
+#Q7.D: One-step Regression for ATE Estimation
+# Ensure relevant columns are numeric
+numeric_cols = ['price', 'penalty', 'beds', 'mcaid_discharges', 
+                'ip_charges', 'mcare_discharges', 'tot_mcare_payment']
+
+# Ensure all required columns exist in pen_data_2012
+missing_cols = [col for col in numeric_cols if col not in pen_data_2012.columns]
+if missing_cols:
+    print(f"Missing columns: {missing_cols}")
+    raise ValueError("Some required columns are missing from pen_data_2012")
+
+# Drop rows with NaN values in required columns
+reg_data = pen_data_2012.dropna(subset=numeric_cols).copy()
+
+# Convert relevant columns to numeric (force conversion)
+reg_data[numeric_cols] = reg_data[numeric_cols].apply(pd.to_numeric, errors='coerce')
+
+# Drop any remaining NaN values after conversion
+reg_data = reg_data.dropna()
+
+# Check data types
+print(reg_data.dtypes)
+
+# Check if any remaining non-numeric values exist
+if reg_data.isnull().sum().sum() > 0:
+    print("There are still NaN values in reg_data after conversion!")
+    reg_data = reg_data.dropna()
+
+# Create interaction terms
+reg_data['beds_diff'] = reg_data['penalty'] * (reg_data['beds'] - reg_data['beds'].mean())
+reg_data['mcaid_diff'] = reg_data['penalty'] * (reg_data['mcaid_discharges'] - reg_data['mcaid_discharges'].mean())
+reg_data['ip_diff'] = reg_data['penalty'] * (reg_data['ip_charges'] - reg_data['ip_charges'].mean())
+reg_data['mcare_diff'] = reg_data['penalty'] * (reg_data['mcare_discharges'] - reg_data['mcare_discharges'].mean())
+reg_data['mpay_diff'] = reg_data['penalty'] * (reg_data['tot_mcare_payment'] - reg_data['tot_mcare_payment'].mean())
+
+# Define dependent and independent variables
+X = reg_data[['penalty', 'beds', 'mcaid_discharges', 'ip_charges', 'mcare_discharges', 
+              'tot_mcare_payment', 'beds_diff', 'mcaid_diff', 'ip_diff', 'mcare_diff', 'mpay_diff']]
+
+# Ensure X is fully numeric
+X = X.apply(pd.to_numeric, errors='coerce')
+
+# Drop rows with NaN values in X
+X = X.dropna()
+y = reg_data.loc[X.index, 'price'].astype(float)  # Ensure y is numeric
+
+# Verify no missing values
+assert not X.isnull().values.any(), "X still contains NaN values!"
+assert not y.isnull().values.any(), "y still contains NaN values!"
+
+# Add constant term for regression
+X = sm.add_constant(X)
+
+# Run regression
+reg_model = sm.OLS(y, X).fit()
+
+# Display results
+print(reg_model.summary())
+
+# Extract ATE estimate (coefficient of 'penalty')
+ate_regression = reg_model.params['penalty']
+print(f"Estimated ATE using One-Step Regression: {ate_regression:.2f}")
+
+# Q7: Final Summary Table
+# Dictionary to store ATE estimates
+ate_results = {
+    "Estimator": ["Nearest Neighbor Matching",
+                  "Mahalanobis Distance Matching",
+                  "Inverse Propensity Weighting"],
+    "ATE Estimator": [ATE_nn, ATE_nn_mah, ATE_ipw]
+}
+
+# Convert to DF
+ate_table = pd.DataFrame(ate_results)
+
+print(ate_table)
 
 # --------------------------------------------------------------------------------------------------
 # Q8: With these different treatment effect estimators, are the results similar, identical, very different?

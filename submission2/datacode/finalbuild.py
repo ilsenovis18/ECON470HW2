@@ -3,8 +3,8 @@ import numpy as np
 
 
 # Call individual scripts -------------------------------------------------
-exec(open('/Users/ilsenovis/Documents/GitHub/ECON470HW2/submission2/datacode/v1996.py').read())
-exec(open('/Users/ilsenovis/Documents/GitHub/ECON470HW2/submission2/datacode/v2010.py').read())
+exec(open('submission2/datacode/v1996.py').read())
+exec(open('submission2/datacode/v2010.py').read())
 
 
 # Read and combine data ---------------------------------------------------
@@ -20,7 +20,7 @@ final_hcris = pd.concat([final_hcris_v1996, final_hcris_v2010])
 
 # Convert date columns to datetime format
 for col in ['fy_end', 'fy_start', 'date_processed', 'date_created']:
-    final_hcris[col] = pd.to_datetime(final_hcris[col], format='%m/%d/%Y')
+    final_hcris[col] = pd.to_datetime(final_hcris[col], format='%m/%d/%Y', errors = 'coerce')
 
 # Convert to absolute values
 final_hcris['tot_discounts'] = final_hcris['tot_discounts'].abs()
